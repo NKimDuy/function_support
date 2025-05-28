@@ -65,12 +65,27 @@ def get_lsa(semester, url):
       general = "http://lsa.ou.edu.vn/vi/admin/mm/report/usersiteoverviews"
       xpath = f"//button[text()='{value}']"
       chrome_options = Options()
-      #chrome_options.add_argument("--ignore-certificate-errors")
-      #chrome_options.add_argument("--disable-features=StrictTransportSecurity")
-      chrome_options.add_argument("--headless")
-      #chrome_options.add_argument("--allow-insecure-localhost")  # Nếu là localhost
-      #driver = webdriver.Chrome(options=chrome_options)
-      driver = webdriver.Chrome()
+      chrome_options = Options()
+      chrome_options.add_argument("--headless=new")  # Chế độ headless mới
+      chrome_options.add_argument("--disable-blink-features=AutomationControlled")  # Tắt automation
+      chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+      chrome_options.add_argument("--window-size=1920,1080")
+      chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+      chrome_options.add_experimental_option("useAutomationExtension", False)
+
+      # Khởi tạo driver
+      driver = webdriver.Chrome(options=chrome_options)
+
+      # Che giấu navigator.webdriver
+      driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+      "source": """
+            Object.defineProperty(navigator, 'webdriver', {
+                  get: () => undefined
+            });
+      """
+      })
+      driver = webdriver.Chrome(options=chrome_options)
+      #driver = webdriver.Chrome()
       #driver.get("http://lsa.ou.edu.vn")
       driver.get(url)
 
@@ -172,7 +187,9 @@ def get_lsa(semester, url):
       return get_subject
 
 
-# định dạng ngày có dạng yyyy-MM-DD
+#------------------------------
+# lấy dữ liệu từ api gồm danh sách môn học bắt đầu từ ngày đến ngày
+#------------------------------
 def get_subject_by_day(semester, from_day, to_day, file):
       url_link_unit = "https://api.ou.edu.vn/api/v1/hdmdp"
       url_list_subject_semester = "https://api.ou.edu.vn/api/v1/tkblopdp"
@@ -209,7 +226,7 @@ def get_subject_by_day(semester, from_day, to_day, file):
                                           lst["TenDP"],
                                          list_detail[key][0], #mã giảng viên
                                          list_detail[key][1], #tên giảng viên
-                                         list_detail[key][2] #khoa
+                                         list_detail[key][2]  #khoa
                                     ]
                               else:
                                     list_subject_in_range[key][4] = ",".join([list_subject_in_range[key][4], lst["MaLop"]])     
@@ -219,12 +236,20 @@ def get_subject_by_day(semester, from_day, to_day, file):
 #------------------------------
 # Tạo file báo cáo
 #------------------------------
-def create_file_report(data):
+def create_file_report(data, from_day, to_day, semester):
+
+      wb = Workbook()
+      if "Sheet" in wb.sheetnames:
+            wb.remove(wb["Sheet"])
+      sheet_general = wb.create_sheet("Tổng quan")
+      sheet_detail = wb.create_sheet("Chi tiết")
+
       # TODO: Định dạng cho các dòng trong file
-      header_font = Font(name="Time New Roman", size=12, bold=True)
+      header_font = Font(name="Times New Roman", size=12, bold=True)
+      footer_font = Font(name="Times New Roman", size=12, bold=True)
       header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
       header_fill = PatternFill(start_color="97FFFF", end_color="97FFFF", fill_type="solid")
-      data_font = Font(name="Time New Roman", size=11)
+      data_font = Font(name="Times New Roman", size=11)
       data_alignment = Alignment(horizontal="center", wrap_text=True, vertical="center")
       border_style = Border(
             left = Side(style="thin"),
@@ -233,6 +258,127 @@ def create_file_report(data):
             bottom = Side(style="thin")
       )
 
+      # TODO: Tạo sheet thứ 1 về tổng quản tình hình của từng khoa 
+      list_department = []
+      list_sum_department = []
+      list_has_lms = []
+      list_none_lms = []
+      # TODO: tạo 3 mảng gồm khoa, tổng số nhóm, có thực hiện LMS, không có LMS
+      for row in data:
+            if row["department"] not in list_department:
+                  list_department.append(row["department"])
+                  list_sum_department.append(1)
+                  list_has_lms.append(1 if row["has_lms"] != "" else 0)
+                  list_none_lms.append(0 if row["has_lms"] != "" else 1)
+            else:
+                  idx_department = list_department.index(row["department"])
+                  list_sum_department[int(idx_department)] += 1
+                  if row["has_lms"] != "":
+                        list_has_lms[idx_department] += 1
+                  else:
+                        list_none_lms[idx_department] += 1
+
+      # TODO: Thêm dòng tiêu đề cho sheet tổng quan
+      header_general_department = sheet_general.cell(row=1, column=1)
+      header_general_department.value = "Khoa"
+      header_general_department.font = header_font
+      header_general_department.fill = header_fill
+      header_general_department.alignment = header_alignment
+      header_general_department.border = border_style
+
+      header_general_sum_subject = sheet_general.cell(row=1, column=2)
+      header_general_sum_subject.value = "Tổng số nhóm môn học"
+      header_general_sum_subject.font = header_font
+      header_general_sum_subject.fill = header_fill
+      header_general_sum_subject.alignment = header_alignment
+      header_general_sum_subject.border = border_style                                  
+                                                      
+      header_general_has_lms = sheet_general.cell(row=1, column=3)
+      header_general_has_lms.value = "Đã soạn LMS"
+      header_general_has_lms.font = header_font
+      header_general_has_lms.fill = header_fill
+      header_general_has_lms.alignment = header_alignment
+      header_general_has_lms.border = border_style           
+
+      header_general_none_lms = sheet_general.cell(row=1, column=4)
+      header_general_none_lms.value = "Chưa soạn"
+      header_general_none_lms.font = header_font
+      header_general_none_lms.fill = header_fill
+      header_general_none_lms.alignment = header_alignment
+      header_general_none_lms.border = border_style    
+
+      # TODO: Thêm dữ liệu thống kê của từng khoa
+      sum_department = 0
+      sum_has_lms = 0
+      sum_none_lms = 0
+      for depart_idx, depart in enumerate(list_department, start=2):
+            body_general_department = sheet_general.cell(row=depart_idx, column=1)
+            body_general_department.value = depart
+            body_general_department.font = data_font
+            body_general_department.alignment = data_alignment
+            body_general_department.border = border_style
+
+            # TODO depart_idx - 2: vì phải bắt đầu đổ dữ liệu ở dòng số 2, nhưng chỉ mục của list cần lấy là 0, nên cần trừ đi 2 để lấy đúng chỉ mục
+
+            body_general_sum_subject =  sheet_general.cell(row=depart_idx, column=2)
+            body_general_sum_subject.value = list_sum_department[depart_idx - 2]
+            body_general_sum_subject.font = data_font
+            body_general_sum_subject.alignment = data_alignment
+            body_general_sum_subject.border = border_style
+            sum_department += int(list_sum_department[depart_idx - 2]) # lấy tổng số nhóm môn học của tất cả các khoa
+
+            body_general_has_lms =  sheet_general.cell(row=depart_idx, column=3)
+            body_general_has_lms.value = list_has_lms[depart_idx - 2]
+            body_general_has_lms.font = data_font
+            body_general_has_lms.alignment = data_alignment
+            body_general_has_lms.border = border_style
+            sum_has_lms += int(list_has_lms[depart_idx - 2]) # lấy tổng số môn học có LMS
+
+            body_general_none_lms = sheet_general.cell(row=depart_idx, column=4)
+            body_general_none_lms.value = list_none_lms[depart_idx - 2]
+            body_general_none_lms.font = data_font
+            body_general_none_lms.alignment = data_alignment
+            body_general_none_lms.border = border_style
+            sum_none_lms += int(list_none_lms[depart_idx - 2]) # lấy tổng số môn học không có lms
+      
+      # TODO: thêm dòng tổng kết ở cuối sheet tổng quan
+      end_header_general_department = sheet_general.cell(row=len(list_department) + 2, column=1)
+      end_header_general_department.value = "Tổng cộng"
+      end_header_general_department.font = footer_font
+      end_header_general_department.alignment = data_alignment
+      end_header_general_department.border = border_style
+
+      end_header_general_sum_department = sheet_general.cell(row=len(list_department) + 2, column=2)
+      end_header_general_sum_department.value = sum_department
+      end_header_general_sum_department.font = footer_font
+      end_header_general_sum_department.alignment = data_alignment
+      end_header_general_sum_department.border = border_style
+
+      end_header_general_has_lms = sheet_general.cell(row=len(list_department) + 2, column=3)
+      end_header_general_has_lms.value = sum_has_lms
+      end_header_general_has_lms.font = footer_font
+      end_header_general_has_lms.alignment = data_alignment
+      end_header_general_has_lms.border = border_style
+
+      end_header_general_none_lms = sheet_general.cell(row=len(list_department) + 2, column=4)
+      end_header_general_none_lms.value = sum_none_lms
+      end_header_general_none_lms.font = footer_font
+      end_header_general_none_lms.alignment = data_alignment
+      end_header_general_none_lms.border = border_style
+      
+      # TODO: thiếp lập cột khoa về phía bên trái và điều chỉnh độ rộng của cột khoa
+      max_length_header = 0
+      column_department = get_column_letter(1)
+      for cell in sheet_general[column_department][1:]:
+            cell.alignment = Alignment(horizontal="general", vertical="center", wrap_text=True)
+      for cell in sheet_general[column_department]:
+            if len(str(cell.value)) > max_length_header:
+                  max_length_header = len(str(cell.value))
+            adjust_width_department_general = max_length_header + 5
+            sheet_general.column_dimensions[column_department].width = adjust_width_department_general
+
+
+      # TODO: Tạo sheet thứ 2 về chi tiết từng môn học của từng khoa
       title = [
             "STT",
             "Khoa phụ trách",
@@ -249,99 +395,111 @@ def create_file_report(data):
             "Đã soạn LMS"
       ]
 
-      wb = Workbook()
-      sheet_detail = wb.active 
-      sheet_detail.title = "Chi tiết" # sheet tên chi tiết
       # TODO: thiết lập giá trị và định dạng cho dòng tiêu đề
       for title_idx, row_title in enumerate(title, start = 1):
-            sheet_detail.cell(row = 1, column = title_idx).value = row_title
-            sheet_detail.cell(row = 1, column = title_idx).font = header_font
-            sheet_detail.cell(row = 1, column = title_idx).alignment = header_alignment
-            sheet_detail.cell(row = 1, column = title_idx).fill = header_fill
-            sheet_detail.cell(row = 1, column = title_idx).border = border_style
+            header_detail = sheet_detail.cell(row = 1, column = title_idx)
+            header_detail.value = row_title
+            header_detail.font = header_font
+            header_detail.alignment = header_alignment
+            header_detail.fill = header_fill
+            header_detail.border = border_style
       
       # TODO: thiết lập giá trị và định dạng cho các dòng còn lại
       for row_idx, row_data in enumerate(data, start = 2):
-            has_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+            has_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid") # mặc định các dòng trong body sẽ là màu trắng
             if row_data["has_lms"] != "x":
-                  has_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-            sheet_detail.cell(row = row_idx, column = 1).value = row_idx - 1
-            sheet_detail.cell(row = row_idx, column = 1).font = data_font
-            sheet_detail.cell(row = row_idx, column = 1).alignment = data_alignment
-            sheet_detail.cell(row = row_idx, column = 1).border = border_style
-            sheet_detail.cell(row = row_idx, column = 1).fill = has_fill
+                  has_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid") # nếu có môn chưa có lms thì sẽ được tô vàng
+            
+            body_detail_id = sheet_detail.cell(row = row_idx, column = 1)
+            body_detail_id.value = row_idx - 1
+            body_detail_id.font = data_font
+            body_detail_id.alignment = data_alignment
+            body_detail_id.border = border_style
+            body_detail_id.fill = has_fill
 
-            sheet_detail.cell(row = row_idx, column = 2).value = row_data["department"]
-            sheet_detail.cell(row = row_idx, column = 2).font = data_font
-            sheet_detail.cell(row = row_idx, column = 2).alignment = data_alignment
-            sheet_detail.cell(row = row_idx, column = 2).border = border_style
-            sheet_detail.cell(row = row_idx, column = 2).fill = has_fill
+            body_detail_department = sheet_detail.cell(row = row_idx, column = 2)
+            body_detail_department.value = row_data["department"]
+            body_detail_department.font = data_font
+            body_detail_department.alignment = data_alignment
+            body_detail_department.border = border_style
+            body_detail_department.fill = has_fill
 
-            sheet_detail.cell(row = row_idx, column = 3).value = row_data["id_unit"]
-            sheet_detail.cell(row = row_idx, column = 3).font = data_font
-            sheet_detail.cell(row = row_idx, column = 3).alignment = data_alignment
-            sheet_detail.cell(row = row_idx, column = 3).border = border_style
-            sheet_detail.cell(row = row_idx, column = 3).fill = has_fill
+            body_detail_id_unit = sheet_detail.cell(row = row_idx, column = 3)
+            body_detail_id_unit.value = row_data["id_unit"]
+            body_detail_id_unit.font = data_font
+            body_detail_id_unit.alignment = data_alignment
+            body_detail_id_unit.border = border_style
+            body_detail_id_unit.fill = has_fill
 
-            sheet_detail.cell(row = row_idx, column = 4).value = row_data["name_unit"]
-            sheet_detail.cell(row = row_idx, column = 4).font = data_font
-            sheet_detail.cell(row = row_idx, column = 4).alignment = data_alignment
-            sheet_detail.cell(row = row_idx, column = 4).border = border_style
-            sheet_detail.cell(row = row_idx, column = 4).fill = has_fill
+            body_detail_name_unit = sheet_detail.cell(row = row_idx, column = 4)
+            body_detail_name_unit.value = row_data["name_unit"]
+            body_detail_name_unit.font = data_font
+            body_detail_name_unit.alignment = data_alignment
+            body_detail_name_unit.border = border_style
+            body_detail_name_unit.fill = has_fill
 
-            sheet_detail.cell(row = row_idx, column = 5).value = row_data["id_subject"]
-            sheet_detail.cell(row = row_idx, column = 5).font = data_font
-            sheet_detail.cell(row = row_idx, column = 5).alignment = data_alignment
-            sheet_detail.cell(row = row_idx, column = 5).border = border_style
-            sheet_detail.cell(row = row_idx, column = 5).fill = has_fill
+            body_detail_id_subject = sheet_detail.cell(row = row_idx, column = 5)
+            body_detail_id_subject.value = row_data["id_subject"]
+            body_detail_id_subject.font = data_font
+            body_detail_id_subject.alignment = data_alignment
+            body_detail_id_subject.border = border_style
+            body_detail_id_subject.fill = has_fill
 
-            sheet_detail.cell(row = row_idx, column = 6).value = row_data["name_subject"]
-            sheet_detail.cell(row = row_idx, column = 6).font = data_font
-            sheet_detail.cell(row = row_idx, column = 6).alignment = data_alignment
-            sheet_detail.cell(row = row_idx, column = 6).border = border_style
-            sheet_detail.cell(row = row_idx, column = 6).fill = has_fill
+            body_detail_name_subject = sheet_detail.cell(row = row_idx, column = 6)
+            body_detail_name_subject.value = row_data["name_subject"]
+            body_detail_name_subject.font = data_font
+            body_detail_name_subject.alignment = data_alignment
+            body_detail_name_subject.border = border_style
+            body_detail_name_subject.fill = has_fill
 
-            sheet_detail.cell(row = row_idx, column = 7).value = row_data["group"]
-            sheet_detail.cell(row = row_idx, column = 7).font = data_font
-            sheet_detail.cell(row = row_idx, column = 7).alignment = data_alignment
-            sheet_detail.cell(row = row_idx, column = 7).border = border_style
-            sheet_detail.cell(row = row_idx, column = 7).fill = has_fill
+            body_detail_group = sheet_detail.cell(row = row_idx, column = 7)
+            body_detail_group.value = row_data["group"]
+            body_detail_group.font = data_font
+            body_detail_group.alignment = data_alignment
+            body_detail_group.border = border_style
+            body_detail_group.fill = has_fill
 
-            sheet_detail.cell(row = row_idx, column = 8).value = row_data["id_class"]
-            sheet_detail.cell(row = row_idx, column = 8).font = data_font
-            sheet_detail.cell(row = row_idx, column = 8).alignment = data_alignment
-            sheet_detail.cell(row = row_idx, column = 8).border = border_style
-            sheet_detail.cell(row = row_idx, column = 8).fill = has_fill
+            body_detail_id_class = sheet_detail.cell(row = row_idx, column = 8)
+            body_detail_id_class.value = row_data["id_class"]
+            body_detail_id_class.font = data_font
+            body_detail_id_class.alignment = data_alignment
+            body_detail_id_class.border = border_style
+            body_detail_id_class.fill = has_fill
 
-            sheet_detail.cell(row = row_idx, column = 9).value = row_data["name_class"]
-            sheet_detail.cell(row = row_idx, column = 9).font = data_font
-            sheet_detail.cell(row = row_idx, column = 9).alignment = data_alignment
-            sheet_detail.cell(row = row_idx, column = 9).border = border_style
-            sheet_detail.cell(row = row_idx, column = 9).fill = has_fill
+            body_detail_name_class = sheet_detail.cell(row = row_idx, column = 9)
+            body_detail_name_class.value = row_data["name_class"]
+            body_detail_name_class.font = data_font
+            body_detail_name_class.alignment = data_alignment
+            body_detail_name_class.border = border_style
+            body_detail_name_class.fill = has_fill
 
-            sheet_detail.cell(row = row_idx, column = 10).value = row_data["id_teacher"]
-            sheet_detail.cell(row = row_idx, column = 10).font = data_font
-            sheet_detail.cell(row = row_idx, column = 10).alignment = data_alignment
-            sheet_detail.cell(row = row_idx, column = 10).border = border_style
-            sheet_detail.cell(row = row_idx, column = 10).fill = has_fill
+            body_detail_id_teacher = sheet_detail.cell(row = row_idx, column = 10)
+            body_detail_id_teacher.value = row_data["id_teacher"]
+            body_detail_id_teacher.font = data_font
+            body_detail_id_teacher.alignment = data_alignment
+            body_detail_id_teacher.border = border_style
+            body_detail_id_teacher.fill = has_fill
 
-            sheet_detail.cell(row = row_idx, column = 11).value = row_data["name_teacher"]
-            sheet_detail.cell(row = row_idx, column = 11).font = data_font
-            sheet_detail.cell(row = row_idx, column = 11).alignment = data_alignment
-            sheet_detail.cell(row = row_idx, column = 11).border = border_style
-            sheet_detail.cell(row = row_idx, column = 11).fill = has_fill
+            body_detail_name_teacher = sheet_detail.cell(row = row_idx, column = 11)
+            body_detail_name_teacher.value = row_data["name_teacher"]
+            body_detail_name_teacher.font = data_font
+            body_detail_name_teacher.alignment = data_alignment
+            body_detail_name_teacher.border = border_style
+            body_detail_name_teacher.fill = has_fill
 
-            sheet_detail.cell(row = row_idx, column = 12).value = row_data["from_day"]
-            sheet_detail.cell(row = row_idx, column = 12).font = data_font
-            sheet_detail.cell(row = row_idx, column = 12).alignment = data_alignment
-            sheet_detail.cell(row = row_idx, column = 12).border = border_style
-            sheet_detail.cell(row = row_idx, column = 12).fill = has_fill
+            body_detail_from_day = sheet_detail.cell(row = row_idx, column = 12)
+            body_detail_from_day.value = row_data["from_day"]
+            body_detail_from_day.font = data_font
+            body_detail_from_day.alignment = data_alignment
+            body_detail_from_day.border = border_style
+            body_detail_from_day.fill = has_fill
 
-            sheet_detail.cell(row = row_idx, column = 13).value = row_data["has_lms"]
-            sheet_detail.cell(row = row_idx, column = 13).font = data_font
-            sheet_detail.cell(row = row_idx, column = 13).alignment = data_alignment
-            sheet_detail.cell(row = row_idx, column = 13).border = border_style
-            sheet_detail.cell(row = row_idx, column = 13).fill = has_fill
+            body_detail_has_lms = sheet_detail.cell(row = row_idx, column = 13)
+            body_detail_has_lms.value = row_data["has_lms"]
+            body_detail_has_lms.font = data_font
+            body_detail_has_lms.alignment = data_alignment
+            body_detail_has_lms.border = border_style
+            body_detail_has_lms.fill = has_fill
 
       # TODO: điều chỉnh độ rộng của cột dựa trên giá trị dài nhất
       for col_idx in range(1, len(data[0]) + 1):
@@ -352,48 +510,45 @@ def create_file_report(data):
                         max_length = len(str(cell.value))
             adjust_width = max_length + 2
             sheet_detail.column_dimensions[column].width = adjust_width
-
-      # TODO: Tạo sheet thứ 2 nội dung về tổng quan
-      # FIXME: gom nhóm dữ liệu để tạo file tổng quan
-
-      wb.save("Tình hình soạn thảo LMS.xlsx")
+      
+      wb.save(f"{semester} - Tình hình soạn thảo LMS từ ngày {datetime.strptime(from_day, "%Y-%m-%d").strftime("%d-%m-%Y")} đến ngày {datetime.strptime(to_day, "%Y-%m-%d").strftime("%d-%m-%Y")}.xlsx")
 
 
 def main():
-      data = [
-            {"group": "SG001", "id_subject": "ACCO4331", "name_subject": "Quản trị học", "from_day": "31/12/1994", "id_class": "TM123456", "name_class": "Lớp luật Đồng Tháp Mười", "id_unit": "TM", "name_unit": "Đồng Tháp Mười Long An", "id_teacher": "TX001", "name_teacher": "Nguyễn Kim Duy", "department": "Luật", "has_lms": "x"},
-            {"group": "SG001", "id_subject": "ACCO4331", "name_subject": "Quản trị học", "from_day": "31/12/1994", "id_class": "TM123456", "name_class": "Lớp luật Đồng Tháp Mười", "id_unit": "TM", "name_unit": "Đồng Tháp Mười Long An", "id_teacher": "TX001", "name_teacher": "Nguyễn Kim Duy", "department": "Luật", "has_lms": "x"},
-            {"group": "SG001", "id_subject": "ACCO4331", "name_subject": "Quản trị học", "from_day": "31/12/1994", "id_class": "TM123456", "name_class": "Lớp luật Đồng Tháp Mười", "id_unit": "TM", "name_unit": "Đồng Tháp Mười Long An", "id_teacher": "TX001", "name_teacher": "Nguyễn Kim Duy", "department": "Luật", "has_lms": ""},
-            {"group": "SG001", "id_subject": "ACCO4331", "name_subject": "Quản trị học", "from_day": "31/12/1994", "id_class": "TM123456", "name_class": "Lớp luật Đồng Tháp Mười", "id_unit": "TM", "name_unit": "Đồng Tháp Mười Long An", "id_teacher": "TX001", "name_teacher": "Nguyễn Kim Duy", "department": "Xây dựng", "has_lms": "x"},
-            {"group": "SG001", "id_subject": "ACCO4331", "name_subject": "Quản trị học", "from_day": "31/12/1994", "id_class": "TM123456", "name_class": "Lớp luật Đồng Tháp Mười", "id_unit": "TM", "name_unit": "Đồng Tháp Mười Long An", "id_teacher": "TX001", "name_teacher": "Nguyễn Kim Duy", "department": "Xây dựng", "has_lms": ""},
-            {"group": "SG001", "id_subject": "ACCO4331", "name_subject": "Quản trị học", "from_day": "31/12/1994", "id_class": "TM123456", "name_class": "Lớp luật Đồng Tháp Mười", "id_unit": "TM", "name_unit": "Đồng Tháp Mười Long An", "id_teacher": "TX001", "name_teacher": "Nguyễn Kim Duy", "department": "Quản trị kinh doanh", "has_lms": "x"}
-      ]
+      # data = [
+      #       {"group": "SG001", "id_subject": "ACCO4331", "name_subject": "Quản trị học", "from_day": "31/12/1994", "id_class": "TM123456", "name_class": "Lớp luật Đồng Tháp Mười", "id_unit": "TM", "name_unit": "Đồng Tháp Mười Long An", "id_teacher": "TX001", "name_teacher": "Nguyễn Kim Duy", "department": "Luật", "has_lms": "x"},
+      #       {"group": "SG001", "id_subject": "ACCO4331", "name_subject": "Quản trị học", "from_day": "31/12/1994", "id_class": "TM123456", "name_class": "Lớp luật Đồng Tháp Mười", "id_unit": "TM", "name_unit": "Đồng Tháp Mười Long An", "id_teacher": "TX001", "name_teacher": "Nguyễn Kim Duy", "department": "Luật", "has_lms": "x"},
+      #       {"group": "SG001", "id_subject": "ACCO4331", "name_subject": "Quản trị học", "from_day": "31/12/1994", "id_class": "TM123456", "name_class": "Lớp luật Đồng Tháp Mười", "id_unit": "TM", "name_unit": "Đồng Tháp Mười Long An", "id_teacher": "TX001", "name_teacher": "Nguyễn Kim Duy", "department": "Luật", "has_lms": ""},
+      #       {"group": "SG001", "id_subject": "ACCO4331", "name_subject": "Quản trị học", "from_day": "31/12/1994", "id_class": "TM123456", "name_class": "Lớp luật Đồng Tháp Mười", "id_unit": "TM", "name_unit": "Đồng Tháp Mười Long An", "id_teacher": "TX001", "name_teacher": "Nguyễn Kim Duy", "department": "Xây dựng", "has_lms": "x"},
+      #       {"group": "SG001", "id_subject": "ACCO4331", "name_subject": "Quản trị học", "from_day": "31/12/1994", "id_class": "TM123456", "name_class": "Lớp luật Đồng Tháp Mười", "id_unit": "TM", "name_unit": "Đồng Tháp Mười Long An", "id_teacher": "TX001", "name_teacher": "Nguyễn Kim Duy", "department": "Xây dựng", "has_lms": ""},
+      #       {"group": "SG001", "id_subject": "ACCO4331", "name_subject": "Quản trị học", "from_day": "31/12/1994", "id_class": "TM123456", "name_class": "Lớp luật Đồng Tháp Mười", "id_unit": "TM", "name_unit": "Đồng Tháp Mười Long An", "id_teacher": "TX001", "name_teacher": "Nguyễn Kim Duy", "department": "Quản trị kinh doanh", "has_lms": "x"}
+      # ]
+      #create_file_report(data)
+      
+      semester = "242"
+      from_day = "2025-05-19"
+      to_day = "2025-05-25"
+      url_lsa = "http://lsa.ou.edu.vn"
+      file = "242_detail.xlsx"
+      report_final = []
+      list_lsa = get_lsa(semester, url_lsa)
+      list_subject_by_day = get_subject_by_day(semester, from_day, to_day, file)
 
-      create_file_report(data)
-      # semester = "242"
-      # from_day = "2025-04-21"
-      # to_day = "2025-04-27"
-      # url_lsa = "http://lsa.ou.edu.vn"
-      # file = "242_detail.xlsx"
-      # report_final = []
-      # list_lsa = get_lsa(semester, url_lsa)
-      # list_subject_by_day = get_subject_by_day(semester, from_day, to_day, file)
-
-      # for key, value in list_subject_by_day.items():
-      #       temp = {}
-      #       temp["group"] = value[0]
-      #       temp["id_subject"] = value[1]
-      #       temp["name_subject"] = value[2]
-      #       temp["from_day"] = value[3]
-      #       temp["id_class"] = value[4]
-      #       temp["name_class"] = value[5]
-      #       temp["id_unit"] = value[6]
-      #       temp["name_unit"] = value[7]
-      #       temp["id_teacher"] = value[8]
-      #       temp["name_teacher"] = value[9]
-      #       temp["department"] = value[10]
-      #       temp["has_lms"] = "x" if key in list_lsa else ""
-      #       report_final.append(temp)
-
+      for key, value in list_subject_by_day.items():
+            temp = {}
+            temp["group"] = value[0]
+            temp["id_subject"] = value[1]
+            temp["name_subject"] = value[2]
+            temp["from_day"] = value[3]
+            temp["id_class"] = value[4]
+            temp["name_class"] = value[5]
+            temp["id_unit"] = value[6]
+            temp["name_unit"] = value[7]
+            temp["id_teacher"] = value[8]
+            temp["name_teacher"] = value[9]
+            temp["department"] = value[10]
+            temp["has_lms"] = "x" if key in list_lsa else ""
+            report_final.append(temp)
+      create_file_report(report_final, from_day, to_day, semester)
 if __name__ == "__main__":
       main()
